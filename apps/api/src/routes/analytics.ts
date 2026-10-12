@@ -49,11 +49,12 @@ export const analyticsRoutes =
           from bio_blocks b left join link_clicks c on c.block_id = b.id and c.ts >= ${since}
           where b.type = 'link' group by b.id order by clicks desc limit 10`;
 
-        const funnel = {
-          comments: totals!.comments_triggered,
-          dms: totals!.dms_sent,
-          clicks: totals!.dm_unique_clickers,
-        };
+        // Comment funnel: matched comment → private reply delivered → that person clicked a tracked link.
+        const [funnel] = await tx<{ comments: number; dms: number; clicks: number }[]>`
+          select count(*)::int as comments,
+            count(*) filter (where cr.private_reply_sent_at is not null)::int as dms,
+            count(*) filter (where exists (select 1 from link_clicks lc where lc.contact_id = cr.contact_id and lc.ts >= cr.created_at))::int as clicks
+          from comment_replies cr where cr.created_at >= ${since}`;
         return { days, totals, daily, topKeywords, topPosts, topLinks, funnel };
       });
     });

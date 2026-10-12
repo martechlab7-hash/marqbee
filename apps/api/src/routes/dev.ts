@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { FakeMetaClient, FOLLOW_CHECK_PAYLOAD } from "@marqbee/core";
-import { ingestWebhook, upsertContact } from "@marqbee/engine";
+import { ingestWebhook, SharedFakeMetaClient, upsertContact } from "@marqbee/engine";
 import { signMetaPayload } from "@marqbee/core";
 import type { Deps } from "../app.js";
 import { requireRole } from "../auth.js";
@@ -38,9 +38,9 @@ export const devRoutes =
       const [acc] = await req.tx((tx) => tx<{ id: string; workspace_id: string; ig_user_id: string }[]>`select id, workspace_id, ig_user_id from ig_accounts where id = ${b.accountId}`);
       if (!acc) return reply.status(404).send({ error: "not_found" });
       const fromId = `sim_${b.fromUsername}`;
-      if (engine.meta instanceof FakeMetaClient && b.follows !== undefined) {
-        if (b.follows) engine.meta.followers.add(fromId);
-        else engine.meta.followers.delete(fromId);
+      if (b.follows !== undefined) {
+        if (engine.meta instanceof SharedFakeMetaClient) await engine.meta.setFollower(fromId, b.follows);
+        else if (engine.meta instanceof FakeMetaClient) b.follows ? engine.meta.followers.add(fromId) : engine.meta.followers.delete(fromId);
       }
       const id = randomBytes(6).toString("hex");
       const entry: Record<string, unknown> = { id: acc.ig_user_id, time: Math.floor(Date.now() / 1000) };
@@ -64,6 +64,6 @@ export const devRoutes =
     });
 
     app.get("/api/dev/outbox", { preHandler: requireRole("viewer") }, async () =>
-      engine.meta instanceof FakeMetaClient ? engine.meta.calls.slice(-50).reverse() : [],
+      engine.meta instanceof SharedFakeMetaClient ? engine.meta.recentCalls() : engine.meta instanceof FakeMetaClient ? engine.meta.calls.slice(-50).reverse() : [],
     );
   };

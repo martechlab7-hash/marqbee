@@ -72,7 +72,7 @@ async function advance(
 
   const port: FlowPort = {
     async enqueueSend({ nodeId, message }) {
-      const msg = await trackLinks(tx, account.workspace_id, contact.id, run.automation_id, message, engine.config.publicApiUrl);
+      const msg = await trackLinks(tx, account.workspace_id, contact.id, run.automation_id, message, engine.config.publicWebUrl);
       // The first message of a comment-triggered run is the one allowed private reply.
       if (ctx.commentId && !ctx.privateReplyUsed) {
         ctx.privateReplyUsed = true;
@@ -128,7 +128,7 @@ async function trackLinks(
   contactId: string,
   automationId: string | null,
   msg: OutboundMessage,
-  apiUrl: string,
+  baseUrl: string,
 ): Promise<OutboundMessage> {
   if (!msg.buttons?.some((b) => b.type === "url")) return msg;
   const buttons = await Promise.all(
@@ -137,7 +137,7 @@ async function trackLinks(
       const code = randomBytes(6).toString("base64url");
       await tx`insert into tracked_links (code, workspace_id, url, contact_id, automation_id)
                values (${code}, ${workspaceId}, ${b.url}, ${contactId}, ${automationId})`;
-      return { ...b, url: `${apiUrl}/r/${code}` };
+      return { ...b, url: `${baseUrl}/r/${code}` };
     }),
   );
   return { ...msg, buttons };

@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 
 export interface Config {
   databaseUrl: string;
@@ -35,7 +35,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     metaVerifyToken: need("META_WEBHOOK_VERIFY_TOKEN", "dev-verify-token"),
     metaGraphVersion: env.META_GRAPH_VERSION || "v23.0",
     metaClient: env.META_CLIENT === "fake" || (!isProd && !env.META_APP_SECRET) ? "fake" : "live",
-    // Dev fallback key is random per process: fine for tests, never for real tokens.
+    // Dev fallback is a fixed, public key so the API and worker agree. Production refuses to start without a real one.
     tokenEncryptionKey: need("TOKEN_ENCRYPTION_KEY", DEV_KEY),
     sessionSecret: need("SESSION_SECRET", "dev-session-secret"),
     publicApiUrl: env.PUBLIC_API_URL || "http://localhost:4000",
@@ -46,4 +46,4 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   };
 }
 
-const DEV_KEY = process.env.TOKEN_ENCRYPTION_KEY || randomBytes(32).toString("base64");
+const DEV_KEY = createHash("sha256").update("marqbee-insecure-dev-key").digest("base64");

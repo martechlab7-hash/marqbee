@@ -36,7 +36,7 @@ export function createEngine(config: Config, overrides: Partial<Pick<Engine, "me
     db,
     redis,
     queues,
-    meta: overrides.meta ?? (config.metaClient === "fake" ? new FakeMetaClient() : new LiveMetaClient(config.metaGraphVersion)),
+    meta: overrides.meta ?? (config.metaClient === "fake" ? new SharedFakeMetaClient(redis, prefix) : new LiveMetaClient(config.metaGraphVersion)),
     vault: new TokenVault(new LocalKeyWrapper(config.tokenEncryptionKey)),
     limiter: new AccountRateLimiter(redis, { perHour: config.sendsPerHour, prefix: `${prefix}:rl` }),
     log,
@@ -46,4 +46,39 @@ export function createEngine(config: Config, overrides: Partial<Pick<Engine, "me
       redis.disconnect();
     },
   };
+}
+
+/**
+ * Dev-mode fake whose outbox and follower list live in Redis, so the API
+ * (which simulates webhooks) and the worker (which sends) see the same state.
+ */
+export class SharedFakeMetaClient extends FakeMetaClient {
+  constructor(
+    private readonly redis: Redis,
+    private readonly prefix: string,
+  ) {
+    super();
+    const record = async (method: string, args: unknown[]) => {
+      await this.redis.lpush(`${this.prefix}:dev:outbox`, JSON.stringify({ method, args, at: new Date().toISOString() }));
+      await this.redis.ltrim(`${this.prefix}:dev:outbox`, 0, 99);
+    };
+    for (const m of ["sendPrivateReply", "replyToComment", "sendMessage"] as const) {
+      const orig = this[m].bind(this) as (...a: unknown[]) => Promise<unknown>;
+      (this as unknown as Record<string, unknown>)[m] = async (...a: unknown[]) => {
+        const r = await orig(...a);
+        await record(m, a.slice(1));
+        return r;
+      };
+    }
+  }
+  async setFollower(igsid: string, follows: boolean) {
+    if (follows) await this.redis.sadd(`${this.prefix}:dev:followers`, igsid);
+    else await this.redis.srem(`${this.prefix}:dev:followers`, igsid);
+  }
+  override async getProfile(_t: string, igsid: string) {
+    return { id: igsid, username: undefined, isFollower: (await this.redis.sismember(`${this.prefix}:dev:followers`, igsid)) === 1 };
+  }
+  async recentCalls(): Promise<{ method: string; args: unknown[]; at: string }[]> {
+    return (await this.redis.lrange(`${this.prefix}:dev:outbox`, 0, 49)).map((x) => JSON.parse(x));
+  }
 }
