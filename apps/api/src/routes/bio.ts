@@ -32,16 +32,22 @@ const PageBody = z.object({
   blocks: z.array(Block).max(50),
 });
 
-async function getOrCreatePage(tx: Tx, workspaceId: string) {
+async function getOrCreatePage(deps: Deps, tx: Tx, workspaceId: string) {
   const [p] = await tx`select * from bio_pages order by created_at limit 1`;
   if (p) return p;
   const [w] = await tx<{ name: string }[]>`select name from workspaces where id = ${workspaceId}`;
-  let slug = normalizeSlug(w!.name) || "creator";
-  if (!isValidSlug(slug)) slug = `creator-${slug}`.slice(0, 30);
-  const [taken] = await tx`select 1 from bio_pages where slug = ${slug}`;
-  if (taken) slug = `${slug.slice(0, 30)}-${Math.random().toString(36).slice(2, 6)}`;
-  const [created] = await tx`insert into bio_pages (workspace_id, slug, title) values (${workspaceId}, ${slug}, ${w!.name}) returning *`;
-  return created!;
+  let base = normalizeSlug(w!.name) || "creator";
+  if (!isValidSlug(base)) base = `creator-${base}`.slice(0, 30);
+  // Slugs are global: check across all tenants with the service connection (RLS would hide them).
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const slug = attempt === 0 ? base : `${base.slice(0, 30)}-${Math.random().toString(36).slice(2, 6)}`;
+    const [taken] = await deps.engine.db`select 1 from bio_pages where slug = ${slug}`;
+    if (taken) continue;
+    const [created] = await tx`insert into bio_pages (workspace_id, slug, title) values (${workspaceId}, ${slug}, ${w!.name})
+                               on conflict (slug) do nothing returning *`;
+    if (created) return created;
+  }
+  throw new Error("could not allocate a bio page URL");
 }
 
 export const bioRoutes =
@@ -49,7 +55,7 @@ export const bioRoutes =
   async (app) => {
     app.get("/api/bio", { preHandler: requireRole("viewer") }, async (req) =>
       req.tx(async (tx) => {
-        const page = await getOrCreatePage(tx, req.auth!.workspaceId);
+        const page = await getOrCreatePage(deps, tx, req.auth!.workspaceId);
         const blocks = await tx`select id, type, data, enabled from bio_blocks where page_id = ${page.id} order by position`;
         const [plan] = await tx<{ plan: string }[]>`select plan from workspaces`;
         return { ...page, blocks, plan: plan!.plan };
@@ -61,7 +67,7 @@ export const bioRoutes =
       const slug = normalizeSlug(b.slug);
       if (!isValidSlug(slug)) return reply.status(422).send({ error: "validation_failed", issues: ["That URL isn't available"] });
       return req.tx(async (tx) => {
-        const page = await getOrCreatePage(tx, req.auth!.workspaceId);
+        const page = await getOrCreatePage(deps, tx, req.auth!.workspaceId);
         // Slugs are globally unique; check across tenants with the service connection.
         const [clash] = await deps.engine.db`select 1 from bio_pages where slug = ${slug} and id <> ${page.id}`;
         if (clash) return reply.status(409).send({ error: "That URL is taken" });

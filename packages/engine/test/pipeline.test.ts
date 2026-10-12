@@ -186,7 +186,7 @@ describe("send worker guarantees", () => {
     h.engine.limiter = new (h.engine.limiter.constructor as typeof import("@marqbee/core").AccountRateLimiter)(h.engine.redis, {
       perHour: 7200,
       burst: 2,
-      prefix: `${h.engine.queues.events.opts.prefix}:rl`,
+      prefix: `${h.engine.prefix}:rl`,
     });
     const acc = await seedAccount(h.engine);
     await addAutomation(h.engine, acc, "comment", { mode: "any" }, { message: { text: "hi" } });

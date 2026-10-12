@@ -1,6 +1,5 @@
 import { normalizeWebhook, verifyMetaSignature, type NormalizedEvent } from "@marqbee/core";
 import type { Engine } from "./context.js";
-import { enqueueEvent } from "./queues.js";
 
 export type IngestResult = { ok: false; status: 401 | 400 } | { ok: true; accepted: number; duplicates: number };
 
@@ -36,8 +35,8 @@ export async function storeAndEnqueue(engine: Engine, events: NormalizedEvent[])
     from jsonb_to_recordset(${engine.db.json(rows as never)}::jsonb) as x(ig_user_id text, type text, payload jsonb, dedupe_key text)
     on conflict (dedupe_key) do nothing
     returning id`;
-  // If Redis is briefly down the rows are still in Postgres; the sweeper re-enqueues them.
-  await Promise.all(inserted.map((r) => enqueueEvent(engine.queues, r.id))).catch((err) =>
+  // If the queue is briefly down the rows are still in Postgres; the sweeper re-enqueues them.
+  await Promise.all(inserted.map((r) => engine.jobs.event(r.id))).catch((err) =>
     engine.log.warn({ err }, "enqueue failed; sweeper will pick events up"),
   );
   return { ok: true, accepted: inserted.length, duplicates: events.length - inserted.length };

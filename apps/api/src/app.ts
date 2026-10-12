@@ -16,6 +16,7 @@ import { bioRoutes } from "./routes/bio.js";
 import { analyticsRoutes } from "./routes/analytics.js";
 import { teamRoutes } from "./routes/team.js";
 import { devRoutes } from "./routes/dev.js";
+import { internalRoutes } from "./routes/internal.js";
 
 export interface Deps {
   engine: Engine;
@@ -65,7 +66,7 @@ export async function buildApp(deps: Deps, opts: { logger?: boolean } = {}): Pro
   app.get("/health", async () => {
     await deps.engine.db`select 1`;
     await deps.engine.redis.ping();
-    return { ok: true };
+    return { ok: true, jobs: deps.engine.jobs.kind, meta: config.metaClient };
   });
 
   registerAuth(app, deps);
@@ -78,6 +79,7 @@ export async function buildApp(deps: Deps, opts: { logger?: boolean } = {}): Pro
   await app.register(bioRoutes(deps));
   await app.register(analyticsRoutes(deps));
   await app.register(teamRoutes(deps));
+  await app.register(internalRoutes(deps));
   if (config.metaClient === "fake") await app.register(devRoutes(deps));
   return app;
 }

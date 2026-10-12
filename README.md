@@ -69,33 +69,46 @@ With no `META_APP_SECRET` set, the app runs in **dev mode** (`META_CLIENT=fake`)
 
 Tests (need Postgres + Redis): `pnpm test`. Typecheck: `pnpm typecheck`.
 
-## Deploy: Vercel (web) + Render (API, worker, Postgres, Redis)
+## Deploy on Vercel (one project)
 
-Vercel hosts the Next.js app. The API and the queue worker are long-running processes (BullMQ workers, rate limiter, retries), which Vercel functions can't run, so they go on Render along with Postgres and Redis. `render.yaml` sets all of that up in Render's Singapore region, the closest to India.
+Everything — dashboard, bio pages, API, webhooks and background jobs — deploys as a single Vercel project:
 
-**1. Backend on Render** (about $7/month each for the API, worker and Redis, plus the database plan)
-1. Render → **New → Blueprint** → pick this repo. It creates `marqbee-api`, `marqbee-worker`, `marqbee-db` and `marqbee-redis`.
-2. Fill in the `marqbee-shared` environment group:
-   - `TOKEN_ENCRYPTION_KEY`: run `openssl rand -base64 32`. Keep it safe and never change it.
-   - `DATABASE_URL`: same host and database as `marqbee-db`'s **internal** URL, but with user `marqbee_app` and a new strong password, e.g. `postgres://marqbee_app:<new-password>@<host>:5432/<db>`. The role is created automatically on the first deploy.
-   - `PUBLIC_API_URL`: the API's URL, e.g. `https://marqbee-api.onrender.com`.
-   - `PUBLIC_WEB_URL`: your Vercel URL (fill in after step 2, then redeploy).
-   - Leave `META_CLIENT=fake` until your Meta app is approved. The app runs fully with simulated sends and the developer tools on the Accounts page.
-3. Deploy. Migrations run automatically before each API deploy. Check `https://<api>/health` returns `{"ok":true}`.
+- The Fastify API runs inside Next.js route handlers (`apps/web/lib/backend.ts`), so `/api`, `/webhooks`, `/oauth`, `/meta`, `/r`, `/b` all live on your one domain.
+- Background work (event processing, DM sends, flow waits) goes through **Upstash QStash**, which calls back `/internal/jobs/*` with signed requests, delays, retries and deduplication. Without QStash it falls back to running after the response via `waitUntil`, with a daily cron sweep (fine for testing, not for production).
+- Maintenance (outbox sweep, missed-comment reconciliation, token refresh) runs on QStash schedules registered at deploy time, plus a daily Vercel Cron as a safety net. Both work on the Hobby plan.
 
-**2. Web on Vercel**
-1. Vercel → **Add New → Project** → import this repo.
-2. Set **Root Directory** to `apps/web`. Framework preset is Next.js; Vercel picks up pnpm from the lockfile.
-3. Add the environment variable `PUBLIC_API_URL` = your Render API URL. The build stops with a clear message if it's missing.
-4. Deploy, copy the Vercel URL into `PUBLIC_WEB_URL` on Render, and redeploy the API and worker.
+**Steps**
 
-The dashboard calls the API through Vercel rewrites (`/api`, `/auth`, `/r`, `/b`, `/public`), so cookies stay first-party and no CORS setup is needed.
+1. **Import the repo:** Vercel → Add New → Project → `marqbee`. Set **Root Directory = `apps/web`**. Everything else is read from `apps/web/vercel.json`.
+2. **Add storage** (Project → Storage, all from the Vercel Marketplace, free tiers available):
+   - **Neon** (Postgres). It sets `DATABASE_URL` / `DATABASE_URL_UNPOOLED`. Choose the region closest to your users (Singapore for India), and set the project's Function Region (Settings → Functions) to match.
+   - **Upstash for Redis.** It sets `REDIS_URL` / `KV_URL`. Same region.
+   - **Upstash QStash.** It sets `QSTASH_TOKEN`, `QSTASH_URL`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY`.
+3. **Add environment variables** (Settings → Environment Variables):
 
-**3. Going live with Instagram:** follow "Going live with Meta" above, using your Render API URL for the webhook, OAuth and callback URLs and your Vercel URL for the privacy policy. Then set `META_APP_ID`, `META_APP_SECRET` and `META_WEBHOOK_VERIFY_TOKEN`, delete `META_CLIENT`, and redeploy.
+   | Variable | Value |
+   |---|---|
+   | `TOKEN_ENCRYPTION_KEY` | `openssl rand -base64 32`. Store it safely and **never change it** (changing it breaks every connected account). |
+   | `SESSION_SECRET` | any long random string |
+   | `DATABASE_APP_PASSWORD` | any long random string. The dashboard connects as a separate `marqbee_app` role so row-level security isolates workspaces; it's created automatically. |
+   | `CRON_SECRET` | any long random string (Vercel sends it to the cron endpoints) |
+   | `META_CLIENT` | `fake` until your Meta app is approved. Sends are simulated and the Accounts page has a simulator. |
+   | `PUBLIC_WEB_URL` | optional: your custom domain, e.g. `https://marqbee.in`. Defaults to the Vercel production URL. |
 
-Custom domains: point `yourdomain.com` at Vercel and `api.yourdomain.com` at Render, then update both URL variables.
+4. **Deploy.** The build runs migrations, registers the QStash schedules, then builds Next.js. Open `https://<your-app>/health`: it should show `{"ok":true,"jobs":"qstash",...}`.
+
+**Notes**
+- **Costs:** Vercel Hobby, Neon, Upstash Redis and QStash all have free tiers. QStash's free daily message quota covers testing; one comment-to-DM uses about 3 messages (event + DM + public reply), so switch QStash to pay-as-you-go before real launches.
+- **Preview deployments** share the production environment variables unless you scope them, so attach a separate Neon branch to Preview (the Neon integration can do this automatically).
+- **Commercial use:** Vercel Hobby is for non-commercial use, so move to Pro before charging customers.
+
+### Alternative: split hosting
+
+`render.yaml` runs the API, worker, Postgres and Redis on Render with BullMQ workers, which suits very high volume. In that setup, set `API_INTERNAL_URL` on the Vercel project to the Render API URL, and Next.js proxies the API paths to it.
 
 ## Going live with Meta
+
+On a single Vercel project, `{PUBLIC_API_URL}` and `{PUBLIC_WEB_URL}` below are both your app's URL.
 
 1. Create a Meta app (type *Business*) and add **Instagram → API setup with Instagram login**.
 2. Set `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `TOKEN_ENCRYPTION_KEY` (`openssl rand -base64 32`), `PUBLIC_API_URL`, `PUBLIC_WEB_URL`.

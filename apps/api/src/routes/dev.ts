@@ -63,7 +63,14 @@ export const devRoutes =
       return r;
     });
 
-    app.get("/api/dev/outbox", { preHandler: requireRole("viewer") }, async () =>
-      engine.meta instanceof SharedFakeMetaClient ? engine.meta.recentCalls() : engine.meta instanceof FakeMetaClient ? engine.meta.calls.slice(-50).reverse() : [],
-    );
+    // Only this workspace's calls: the outbox is shared by every workspace on the deployment.
+    app.get("/api/dev/outbox", { preHandler: requireRole("viewer") }, async (req) => {
+      const calls =
+        engine.meta instanceof SharedFakeMetaClient ? await engine.meta.recentCalls() : engine.meta instanceof FakeMetaClient ? engine.meta.calls.slice(-50).reverse() : [];
+      const { accounts, comments } = await req.tx(async (tx) => ({
+        accounts: new Set((await tx<{ ig_user_id: string }[]>`select ig_user_id from ig_accounts`).map((r) => r.ig_user_id)),
+        comments: new Set((await tx<{ comment_id: string }[]>`select comment_id from comment_replies order by created_at desc limit 500`).map((r) => r.comment_id)),
+      }));
+      return calls.filter((c) => (c.method === "replyToComment" ? comments.has(String(c.args[0])) : accounts.has(String(c.args[0]))));
+    });
   };

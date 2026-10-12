@@ -3,7 +3,6 @@ import { runFlow, type FlowGraph, type FlowPort, type OutboundMessage, type RunO
 import type { ContactRow, Db, FlowRunRow, IgAccountRow } from "@marqbee/db";
 import type { Engine } from "./context.js";
 import { addTags, removeTags } from "./contacts.js";
-import { enqueueSend } from "./queues.js";
 
 /**
  * Flow-run orchestration. Runs execute inside the caller's DB transaction and
@@ -144,12 +143,6 @@ async function trackLinks(
 }
 
 export async function enqueueEffects(engine: Engine, effects: RunEffects): Promise<void> {
-  for (const id of effects.messageIds) await enqueueSend(engine.queues, id);
-  if (effects.resume) {
-    await engine.queues.resume.add(
-      "resume",
-      { runId: effects.resume.runId },
-      { jobId: `resume-${effects.resume.runId}-${effects.resume.at.getTime()}`, delay: Math.max(0, effects.resume.at.getTime() - Date.now()) },
-    );
-  }
+  for (const id of effects.messageIds) await engine.jobs.send(id);
+  if (effects.resume) await engine.jobs.resume(effects.resume.runId, effects.resume.at);
 }

@@ -1,18 +1,15 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { BioPageView, type BioPageData } from "@/components/bio-render";
+import { backendJson } from "@/lib/backend";
 import { ViewBeacon } from "./view-beacon";
-
-const API = process.env.API_INTERNAL_URL || process.env.PUBLIC_API_URL || "http://localhost:4000";
 
 // Cached per slug at the edge/CDN; the API sends s-maxage too.
 export const revalidate = 60;
 
 async function load(slug: string): Promise<BioPageData | null> {
   if (!/^[a-z0-9][a-z0-9_.-]{1,39}$/i.test(slug)) return null;
-  const res = await fetch(`${API}/public/bio/${encodeURIComponent(slug.toLowerCase())}`, { next: { revalidate: 60, tags: [`bio:${slug}`] } });
-  if (!res.ok) return null;
-  return res.json();
+  return backendJson<BioPageData>(`/public/bio/${encodeURIComponent(slug.toLowerCase())}`);
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {

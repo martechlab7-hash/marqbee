@@ -224,7 +224,7 @@ export class FakeMetaClient implements MetaClient {
     const err = this.failNext.shift();
     if (err) throw err;
     this.calls.push({ method, args });
-    return `fake_${method}_${++this.seq}`;
+    return `fake_${method}_${++this.seq}_${Math.random().toString(36).slice(2, 10)}`;
   }
   async sendPrivateReply(_t: string, igUserId: string, commentId: string, msg: OutboundMessage) {
     return { messageId: await this.record("sendPrivateReply", [igUserId, commentId, msg]) };

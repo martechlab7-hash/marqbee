@@ -13,8 +13,9 @@ export interface WorkerOptions {
 }
 
 export async function startWorkers(engine: Engine, opts: WorkerOptions = {}): Promise<{ close(): Promise<void> }> {
+  if (!engine.queues) throw new Error(`startWorkers needs the bullmq job driver (current: ${engine.jobs.kind})`);
   const connection = engine.redis.duplicate({ maxRetriesPerRequest: null });
-  const prefix = engine.queues.events.opts.prefix;
+  const prefix = engine.prefix;
   const common = { connection, prefix };
 
   const events = new Worker<{ eventId: string }>(

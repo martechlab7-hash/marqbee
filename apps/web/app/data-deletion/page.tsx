@@ -1,14 +1,15 @@
 import { Legal } from "@/components/legal";
+import { backendJson } from "@/lib/backend";
 export const metadata = { title: "Data deletion" };
 
-const API = process.env.API_INTERNAL_URL || process.env.PUBLIC_API_URL || "http://localhost:4000";
+export const dynamic = "force-dynamic";
 
 export default async function DataDeletion({ searchParams }: { searchParams: Promise<{ code?: string }> }) {
   const { code } = await searchParams;
   let status: string | null = null;
   if (code && /^[a-f0-9]{20}$/.test(code)) {
-    const r = await fetch(`${API}/meta/data-deletion/${code}`, { cache: "no-store" }).catch(() => null);
-    status = r?.ok ? ((await r.json()) as { status: string }).status : "not_found";
+    const r = await backendJson<{ status: string }>(`/meta/data-deletion/${code}`).catch(() => null);
+    status = r?.status ?? "not_found";
   }
   return (
     <Legal title="Data deletion">

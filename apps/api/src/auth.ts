@@ -80,7 +80,7 @@ export function registerAuth(app: FastifyInstance, deps: Deps) {
   app.addHook("preHandler", async (req, reply) => {
     if (!req.url.startsWith("/api/") || ["GET", "HEAD", "OPTIONS"].includes(req.method)) return;
     const origin = req.headers.origin;
-    if (origin && origin !== deps.engine.config.publicWebUrl && origin !== deps.engine.config.publicApiUrl) {
+    if (origin && !deps.engine.config.allowedOrigins.includes(origin)) {
       return reply.status(403).send({ error: "bad_origin" });
     }
   });

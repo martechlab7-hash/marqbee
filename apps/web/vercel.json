@@ -1,0 +1,24 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "node --import tsx scripts/vercel-setup.mts && next build",
+  "crons": [
+    {
+      "path": "/internal/cron/sweep",
+      "schedule": "15 3 * * *"
+    },
+    {
+      "path": "/internal/cron/reconcile",
+      "schedule": "25 3 * * *"
+    },
+    {
+      "path": "/internal/cron/refresh-tokens",
+      "schedule": "35 3 * * *"
+    },
+    {
+      "path": "/internal/cron/expire-runs",
+      "schedule": "45 3 * * *"
+    }
+  ]
+}

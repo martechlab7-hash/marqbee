@@ -28,7 +28,7 @@ export interface Harness {
   close(): Promise<void>;
 }
 
-export async function makeHarness(opts: { sendsPerHour?: number; workers?: boolean } = {}): Promise<Harness> {
+export async function makeHarness(opts: { sendsPerHour?: number; workers?: boolean; driver?: "bullmq" | "inline" } = {}): Promise<Harness> {
   const prefix = `test-${randomBytes(4).toString("hex")}`;
   const meta = new FakeMetaClient();
   const config = {
@@ -38,16 +38,17 @@ export async function makeHarness(opts: { sendsPerHour?: number; workers?: boole
     metaAppSecret: "test-secret",
     tokenEncryptionKey: randomBytes(32).toString("base64"),
     sendsPerHour: opts.sendsPerHour ?? 10_000_000,
+    jobDriver: opts.driver ?? ("bullmq" as const),
   };
   const engine = createEngine(config, { meta, prefix, log: pino({ level: process.env.TEST_LOG ?? "silent" }) });
-  const workers = opts.workers === false ? undefined : await startWorkers(engine, { eventConcurrency: 20, sendConcurrency: 20 });
+  const workers = opts.workers === false || config.jobDriver !== "bullmq" ? undefined : await startWorkers(engine, { eventConcurrency: 20, sendConcurrency: 20 });
   return {
     engine,
     meta,
     workers,
     async close() {
       await workers?.close();
-      for (const q of Object.values(engine.queues)) await q.obliterate({ force: true }).catch(() => {});
+      for (const q of Object.values(engine.queues ?? {})) await q.obliterate({ force: true }).catch(() => {});
       const keys = await engine.redis.keys(`${prefix}*`);
       if (keys.length) await engine.redis.del(...keys);
       await engine.close();
@@ -122,9 +123,12 @@ export async function waitFor(fn: () => Promise<boolean> | boolean, timeoutMs = 
 export async function drain(engine: Engine, timeoutMs = 30_000) {
   await waitFor(
     async () => {
-      const counts = await Promise.all(Object.values(engine.queues).map((q) => q.getJobCounts("waiting", "active", "delayed", "prioritized")));
-      const busy = counts.some((c) => Object.values(c).some((n) => Number(n) > 0));
-      if (busy) return false;
+      if (engine.queues) {
+        const counts = await Promise.all(Object.values(engine.queues).map((q) => q.getJobCounts("waiting", "active", "delayed", "prioritized")));
+        if (counts.some((c) => Object.values(c).some((n) => Number(n) > 0))) return false;
+      } else {
+        await engine.jobs.settle();
+      }
       const [p] = await engine.db<{ n: number }[]>`select count(*)::int n from messages where status in ('queued','sending')`;
       const [e] = await engine.db<{ n: number }[]>`select count(*)::int n from events where processed_at is null`;
       return p!.n === 0 && e!.n === 0;

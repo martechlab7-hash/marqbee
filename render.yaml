@@ -1,5 +1,6 @@
 # Render Blueprint: API + worker + Postgres + Redis in Singapore (closest Render region to India).
-# Render → New → Blueprint → pick this repo. The web app goes on Vercel (see README).
+# Alternative to the single-Vercel-project setup (see README). Render → New → Blueprint → pick this repo,
+# then set API_INTERNAL_URL on the Vercel project to this API's URL.
 services:
   - type: web
     name: marqbee-api

@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { checkSendWindow, windowExpiresAt } from "@marqbee/core";
 import type { ContactRow } from "@marqbee/db";
-import { enqueueSend, recordHumanSend } from "@marqbee/engine";
+import { recordHumanSend } from "@marqbee/engine";
 import type { Deps } from "../app.js";
 import { audit, requireRole } from "../auth.js";
 
@@ -154,7 +154,7 @@ export const contactRoutes =
           ? reply.status(404).send({ error: "not_found" })
           : reply.status(422).send({ error: "The messaging window is closed. Instagram only allows replies within 24 hours of their last message (7 days with the human-agent tag).", reason: result.reason });
       }
-      await enqueueSend(engine.queues, result.id, { priority: 1 });
+      await engine.jobs.send(result.id, { priority: 1 });
       return { id: result.id };
     });
 

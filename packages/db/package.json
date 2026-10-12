@@ -9,7 +9,7 @@
   "scripts": {
     "migrate": "tsx src/migrate-cli.ts",
     "typecheck": "tsc -p .",
-    "test": "vitest run"
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@marqbee/core": "workspace:*",

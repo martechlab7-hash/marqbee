@@ -2,7 +2,6 @@ import { refreshLongLivedToken, type NormalizedEvent } from "@marqbee/core";
 import type { ContactRow, FlowRunRow, IgAccountRow } from "@marqbee/db";
 import type { Engine } from "./context.js";
 import { storeAndEnqueue } from "./ingest.js";
-import { enqueueEvent, enqueueSend } from "./queues.js";
 import { enqueueEffects, resumeRun } from "./runs.js";
 
 /** Resume a run parked on a `wait` node. */
@@ -96,13 +95,13 @@ export async function reconcileComments(engine: Engine): Promise<{ accounts: num
 export async function sweepOutbox(engine: Engine): Promise<{ events: number; sends: number; resumes: number }> {
   const events = await engine.db<{ id: bigint }[]>`
     select id from events where processed_at is null and received_at < now() - interval '1 minute' limit 1000`;
-  for (const e of events) await enqueueEvent(engine.queues, e.id);
+  for (const e of events) await engine.jobs.event(e.id);
   const sends = await engine.db<{ id: string }[]>`
     select id from messages where direction = 'out' and status in ('queued', 'sending') and created_at < now() - interval '2 minutes' limit 1000`;
-  for (const m of sends) await enqueueSend(engine.queues, m.id);
+  for (const m of sends) await engine.jobs.send(m.id);
   const runs = await engine.db<{ id: string }[]>`
     select id from flow_runs where state = 'waiting' and resume_at < now() - interval '1 minute' limit 1000`;
-  for (const r of runs) await engine.queues.resume.add("resume", { runId: r.id }, { jobId: `resume-sweep-${r.id}` });
+  for (const r of runs) await engine.jobs.resume(r.id, new Date());
   return { events: events.length, sends: sends.length, resumes: runs.length };
 }
 

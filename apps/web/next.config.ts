@@ -1,23 +1,26 @@
 import type { NextConfig } from "next";
 
-const API = process.env.API_INTERNAL_URL || process.env.PUBLIC_API_URL || "http://localhost:4000";
-if (process.env.VERCEL && API.includes("localhost")) {
-  throw new Error("Set PUBLIC_API_URL in Vercel → Settings → Environment Variables to your API's URL (e.g. https://marqbee-api.onrender.com)");
-}
+/**
+ * Two deployment modes:
+ *  - Single Vercel project (default): the API runs in-process via route handlers (lib/backend.ts).
+ *  - Split: set API_INTERNAL_URL to a separately hosted API (e.g. Render) and these rewrites proxy to it.
+ */
+const EXTERNAL_API = process.env.API_INTERNAL_URL;
+const PROXIED = ["/api/:path*", "/auth/:path*", "/webhooks/:path*", "/oauth/:path*", "/meta/:path*", "/internal/:path*", "/public/:path*", "/r/:code", "/b/:id", "/health"];
 
-// The dashboard talks to the API through same-origin rewrites, so the session
-// cookie stays first-party and SameSite=Lax works without CORS.
 const config: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  transpilePackages: ["@marqbee/api", "@marqbee/engine", "@marqbee/core", "@marqbee/db"],
+  serverExternalPackages: ["fastify", "@fastify/cookie", "@fastify/cors", "@fastify/formbody", "bullmq", "ioredis", "postgres", "pino", "@upstash/qstash"],
+  webpack(config) {
+    // Workspace packages use NodeNext-style ".js" imports of ".ts" files.
+    config.resolve.extensionAlias = { ".js": [".ts", ".tsx", ".js"] };
+    return config;
+  },
   async rewrites() {
-    return [
-      { source: "/api/:path*", destination: `${API}/api/:path*` },
-      { source: "/auth/:path*", destination: `${API}/auth/:path*` },
-      { source: "/r/:code", destination: `${API}/r/:code` },
-      { source: "/b/:id", destination: `${API}/b/:id` },
-      { source: "/public/:path*", destination: `${API}/public/:path*` },
-    ];
+    if (!EXTERNAL_API) return [];
+    return { beforeFiles: PROXIED.map((source) => ({ source, destination: `${EXTERNAL_API}${source}` })), afterFiles: [], fallback: [] };
   },
   async headers() {
     return [

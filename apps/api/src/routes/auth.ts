@@ -71,7 +71,7 @@ export const authRoutes =
 
 /** Fixed-window attempt counter in Redis (10 minutes). */
 async function tooMany(deps: Deps, key: string, max: number): Promise<boolean> {
-  const k = `${deps.engine.queues.events.opts.prefix}:attempts:${key}`;
+  const k = `${deps.engine.prefix}:attempts:${key}`;
   const n = await deps.engine.redis.incr(k);
   if (n === 1) await deps.engine.redis.expire(k, 600);
   return n > max;

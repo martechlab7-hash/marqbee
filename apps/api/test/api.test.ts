@@ -169,6 +169,13 @@ describe("end to end via HTTP", () => {
     const again = await c.put("/api/bio", { ...{ slug: "masala-mom", title: "MM", bio: "", theme: { preset: "mint" }, showBadge: true, published: true }, blocks: saved.json().blocks.map((b: object) => b) });
     expect(again.json().blocks.map((b: { id: string }) => b.id)).toEqual(saved.json().blocks.map((b: { id: string }) => b.id));
 
+    // A second workspace with the same name gets a different default URL instead of an error.
+    const twin = await app.inject({ method: "POST", url: "/auth/signup", payload: { email: "twin@example.com", password: "correct-horse-battery", workspaceName: "masala mom" } });
+    const twinCookie = `mqb_session=${twin.cookies.find((c) => c.name === "mqb_session")!.value}`;
+    const twinPage = await api(twinCookie).get("/api/bio");
+    expect(twinPage.statusCode).toBe(200);
+    expect(twinPage.json().slug).toMatch(/^masala-mom-[a-z0-9]{4}$/);
+
     const other = await signup("other@example.com");
     expect((await api(other.cookie).put("/api/bio", { slug: "masala-mom", title: "", bio: "", theme: { preset: "paper" }, showBadge: true, published: true, blocks: [] })).statusCode).toBe(409);
   });
