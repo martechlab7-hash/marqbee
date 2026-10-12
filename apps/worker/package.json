@@ -9,6 +9,7 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
-    "@marqbee/engine": "workspace:*"
+    "@marqbee/engine": "workspace:*",
+    "tsx": "4.20.6"
   }
 }

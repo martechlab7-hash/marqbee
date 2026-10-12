@@ -3,6 +3,10 @@ import { createDb } from "@marqbee/db";
 import { buildApp } from "./app.js";
 
 const config = loadConfig();
+// The dashboard API must use the RLS-restricted role; the service role can see every workspace.
+if (new URL(config.databaseUrl).username === new URL(config.databaseServiceUrl).username) {
+  throw new Error("DATABASE_URL must use a different role (e.g. marqbee_app) than DATABASE_SERVICE_URL, or tenant isolation is bypassed");
+}
 const engine = createEngine(config);
 const appDb = createDb(config.databaseUrl);
 const app = await buildApp({ engine, appDb });

@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const API = process.env.API_INTERNAL_URL || process.env.PUBLIC_API_URL || "http://localhost:4000";
+if (process.env.VERCEL && API.includes("localhost")) {
+  throw new Error("Set PUBLIC_API_URL in Vercel → Settings → Environment Variables to your API's URL (e.g. https://marqbee-api.onrender.com)");
+}
 
 // The dashboard talks to the API through same-origin rewrites, so the session
 // cookie stays first-party and SameSite=Lax works without CORS.

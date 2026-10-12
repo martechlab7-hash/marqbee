@@ -1,0 +1,75 @@
+# Render Blueprint: API + worker + Postgres + Redis in Singapore (closest Render region to India).
+# Render → New → Blueprint → pick this repo. The web app goes on Vercel (see README).
+services:
+  - type: web
+    name: marqbee-api
+    runtime: node
+    region: singapore
+    plan: starter
+    buildCommand: corepack enable && pnpm install --frozen-lockfile
+    preDeployCommand: pnpm --filter @marqbee/db migrate
+    startCommand: pnpm --filter @marqbee/api start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_SERVICE_URL
+        fromDatabase: { name: marqbee-db, property: connectionString }
+      - key: REDIS_URL
+        fromService: { type: keyvalue, name: marqbee-redis, property: connectionString }
+      - fromGroup: marqbee-shared
+
+  - type: worker
+    name: marqbee-worker
+    runtime: node
+    region: singapore
+    plan: starter
+    buildCommand: corepack enable && pnpm install --frozen-lockfile
+    startCommand: pnpm --filter @marqbee/worker start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_SERVICE_URL
+        fromDatabase: { name: marqbee-db, property: connectionString }
+      - key: REDIS_URL
+        fromService: { type: keyvalue, name: marqbee-redis, property: connectionString }
+      - fromGroup: marqbee-shared
+
+  - type: keyvalue
+    name: marqbee-redis
+    region: singapore
+    plan: starter
+    maxmemoryPolicy: noeviction # required by BullMQ — queued DMs must never be evicted
+    ipAllowList: []
+
+databases:
+  - name: marqbee-db
+    region: singapore
+    plan: basic-256mb
+    postgresMajorVersion: "16"
+
+envVarGroups:
+  - name: marqbee-shared
+    envVars:
+      - key: DATABASE_URL
+        sync: false # postgres://marqbee_app:<strong password>@<db host>:5432/<db name>, same host/db as marqbee-db; the role is created on first migrate
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false # openssl rand -base64 32 — never change it after real accounts connect
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: PUBLIC_API_URL
+        sync: false # https://marqbee-api.onrender.com (or api.yourdomain.com)
+      - key: PUBLIC_WEB_URL
+        sync: false # https://your-app.vercel.app (or yourdomain.com)
+      - key: META_CLIENT
+        value: fake # remove once META_* below are set and App Review is approved
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_WEBHOOK_VERIFY_TOKEN
+        sync: false

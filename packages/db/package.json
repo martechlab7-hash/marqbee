@@ -12,7 +12,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@marqbee/core": "workspace:*",
     "postgres": "3.4.7",
-    "@marqbee/core": "workspace:*"
+    "tsx": "4.20.6"
   }
 }

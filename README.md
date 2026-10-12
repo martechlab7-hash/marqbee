@@ -69,6 +69,32 @@ With no `META_APP_SECRET` set, the app runs in **dev mode** (`META_CLIENT=fake`)
 
 Tests (need Postgres + Redis): `pnpm test`. Typecheck: `pnpm typecheck`.
 
+## Deploy: Vercel (web) + Render (API, worker, Postgres, Redis)
+
+Vercel hosts the Next.js app. The API and the queue worker are long-running processes (BullMQ workers, rate limiter, retries), which Vercel functions can't run, so they go on Render along with Postgres and Redis. `render.yaml` sets all of that up in Render's Singapore region, the closest to India.
+
+**1. Backend on Render** (about $7/month each for the API, worker and Redis, plus the database plan)
+1. Render → **New → Blueprint** → pick this repo. It creates `marqbee-api`, `marqbee-worker`, `marqbee-db` and `marqbee-redis`.
+2. Fill in the `marqbee-shared` environment group:
+   - `TOKEN_ENCRYPTION_KEY`: run `openssl rand -base64 32`. Keep it safe and never change it.
+   - `DATABASE_URL`: same host and database as `marqbee-db`'s **internal** URL, but with user `marqbee_app` and a new strong password, e.g. `postgres://marqbee_app:<new-password>@<host>:5432/<db>`. The role is created automatically on the first deploy.
+   - `PUBLIC_API_URL`: the API's URL, e.g. `https://marqbee-api.onrender.com`.
+   - `PUBLIC_WEB_URL`: your Vercel URL (fill in after step 2, then redeploy).
+   - Leave `META_CLIENT=fake` until your Meta app is approved. The app runs fully with simulated sends and the developer tools on the Accounts page.
+3. Deploy. Migrations run automatically before each API deploy. Check `https://<api>/health` returns `{"ok":true}`.
+
+**2. Web on Vercel**
+1. Vercel → **Add New → Project** → import this repo.
+2. Set **Root Directory** to `apps/web`. Framework preset is Next.js; Vercel picks up pnpm from the lockfile.
+3. Add the environment variable `PUBLIC_API_URL` = your Render API URL. The build stops with a clear message if it's missing.
+4. Deploy, copy the Vercel URL into `PUBLIC_WEB_URL` on Render, and redeploy the API and worker.
+
+The dashboard calls the API through Vercel rewrites (`/api`, `/auth`, `/r`, `/b`, `/public`), so cookies stay first-party and no CORS setup is needed.
+
+**3. Going live with Instagram:** follow "Going live with Meta" above, using your Render API URL for the webhook, OAuth and callback URLs and your Vercel URL for the privacy policy. Then set `META_APP_ID`, `META_APP_SECRET` and `META_WEBHOOK_VERIFY_TOKEN`, delete `META_CLIENT`, and redeploy.
+
+Custom domains: point `yourdomain.com` at Vercel and `api.yourdomain.com` at Render, then update both URL variables.
+
 ## Going live with Meta
 
 1. Create a Meta app (type *Business*) and add **Instagram → API setup with Instagram login**.
