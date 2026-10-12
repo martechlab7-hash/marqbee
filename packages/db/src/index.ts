@@ -5,9 +5,11 @@ export type Tx = postgres.TransactionSql;
 export type Db = Sql | Tx;
 
 export function createDb(url: string, opts: { max?: number } = {}): Sql {
-  return postgres(url, {
-    // Transaction-mode poolers (Neon "-pooler", pgbouncer) don't support prepared statements.
-    prepare: !/-pooler\.|pgbouncer=true/.test(url),
+  const { url: clean, ssl, pooled } = normalizeDbUrl(url);
+  return postgres(clean, {
+    // Transaction-mode poolers (Supabase Supavisor :6543, pgbouncer, Neon "-pooler") don't support prepared statements.
+    prepare: !pooled,
+    ssl,
     max: opts.max ?? 10,
     onnotice: () => {},
     transform: { undefined: null },
@@ -32,25 +34,54 @@ export { runMigrations } from "./run-migrations.js";
 export * from "./types.js";
 
 /**
+ * Provider URLs carry extra query parameters (Supabase adds `supa=…`, Prisma-style
+ * `pgbouncer=true`) that postgres.js would send to the server as startup
+ * parameters, which Postgres rejects. Keep only what we understand.
+ */
+export function normalizeDbUrl(url: string): { url: string; ssl: false | "require"; pooled: boolean } {
+  const u = new URL(url);
+  const sslmode = u.searchParams.get("sslmode");
+  const pooled = u.port === "6543" || u.searchParams.get("pgbouncer") === "true" || /(^|[.-])pooler\./.test(u.hostname);
+  const managed = /\.(supabase\.(co|com)|neon\.tech)$/.test(u.hostname);
+  u.search = "";
+  const ssl = sslmode === "disable" ? false : sslmode || managed ? "require" : false;
+  return { url: u.toString(), ssl, pooled };
+}
+
+/**
+ * Pooler usernames carry the project: Supabase Supavisor uses `role.projectref`.
+ * The Postgres role itself is just `role`.
+ */
+export function pgRoleName(username: string): string {
+  const m = decodeURIComponent(username).match(/^(.+)\.([a-z0-9]{20})$/);
+  return m ? m[1]! : decodeURIComponent(username);
+}
+
+/**
  * Two connections: the service role (schema owner — ingest, workers, migrations)
  * and the RLS-restricted app role (dashboard API).
- *  - Explicit: DATABASE_SERVICE_URL + DATABASE_URL (local, Render).
- *  - Vercel + Neon: the integration sets DATABASE_URL to the owner; the app role
- *    is derived from it as marqbee_app / DATABASE_APP_PASSWORD (or DATABASE_APP_URL).
+ *  - Explicit: DATABASE_SERVICE_URL + DATABASE_URL (local, Render, any Postgres).
+ *  - Vercel + Supabase integration: POSTGRES_URL (pooled) / POSTGRES_URL_NON_POOLING.
+ *  - Single owner URL in DATABASE_URL (Supabase pasted manually, Neon).
+ * In the last two cases the app role is derived from the owner URL as
+ * marqbee_app[.projectref] / DATABASE_APP_PASSWORD (or given as DATABASE_APP_URL).
  */
 export function resolveDatabaseUrls(env: NodeJS.ProcessEnv): { service?: string; app?: string; migrate?: string } {
   if (env.DATABASE_SERVICE_URL) {
     return { service: env.DATABASE_SERVICE_URL, app: env.DATABASE_APP_URL || env.DATABASE_URL, migrate: env.DATABASE_SERVICE_URL };
   }
-  if (env.DATABASE_URL && (env.DATABASE_APP_URL || env.DATABASE_APP_PASSWORD)) {
+  const owner = env.POSTGRES_URL || env.DATABASE_URL;
+  if (owner && (env.DATABASE_APP_URL || env.DATABASE_APP_PASSWORD)) {
     let app = env.DATABASE_APP_URL;
     if (!app) {
-      const u = new URL(env.DATABASE_URL);
-      u.username = "marqbee_app";
+      const u = new URL(owner);
+      const ref = decodeURIComponent(u.username).match(/\.([a-z0-9]{20})$/)?.[1];
+      u.username = ref ? `marqbee_app.${ref}` : "marqbee_app";
       u.password = encodeURIComponent(env.DATABASE_APP_PASSWORD!);
       app = u.toString();
     }
-    return { service: env.DATABASE_URL, app, migrate: env.DATABASE_URL_UNPOOLED || env.DATABASE_URL };
+    const direct = env.POSTGRES_URL ? env.POSTGRES_URL_NON_POOLING : env.DATABASE_URL_UNPOOLED;
+    return { service: owner, app, migrate: direct || owner };
   }
   return {};
 }

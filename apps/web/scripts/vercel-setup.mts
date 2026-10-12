@@ -1,6 +1,6 @@
 /**
  * Runs before `next build` on Vercel:
- *  1. Database migrations (and the RLS app role) on Neon/Postgres.
+ *  1. Database migrations (and the RLS app role) on Supabase Postgres.
  *  2. On production deploys with QStash: upsert maintenance schedules
  *     (outbox sweep, missed-comment reconciliation, run expiry).
  * Vercel Cron (vercel.json) also calls these daily as a safety net, which
@@ -10,9 +10,9 @@ import { runMigrations } from "@marqbee/db";
 
 const env = process.env;
 
-if (!env.DATABASE_URL && !env.DATABASE_SERVICE_URL) {
+if (!env.POSTGRES_URL && !env.DATABASE_URL && !env.DATABASE_SERVICE_URL) {
   console.error(
-    "\n✖ No database configured. In Vercel → Storage, connect a Neon Postgres database to this project, " +
+    "\n✖ No database configured. In Vercel → Storage (or Integrations), connect Supabase to this project — it sets POSTGRES_URL — " +
       "then add DATABASE_APP_PASSWORD (any long random string) and redeploy.\n",
   );
   process.exit(1);
