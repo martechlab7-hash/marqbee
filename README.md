@@ -81,7 +81,8 @@ Everything — dashboard, bio pages, API, webhooks and background jobs — deplo
 
 1. **Import the repo:** Vercel → Add New → Project → `marqbee`. Set **Root Directory = `apps/web`**. Everything else is read from `apps/web/vercel.json`.
 2. **Add storage** (Project → Storage, all from the Vercel Marketplace, free tiers available):
-   - **Neon** (Postgres). It sets `DATABASE_URL` / `DATABASE_URL_UNPOOLED`. Choose the region closest to your users (Singapore for India), and set the project's Function Region (Settings → Functions) to match.
+   - **Supabase** (Postgres database). Create a new Supabase project from the integration (or link an existing one). It sets `POSTGRES_URL` (pooled, used at runtime) and `POSTGRES_URL_NON_POOLING` (used for migrations). Choose **Mumbai (ap-south-1)** for India, and set the Vercel Function Region (Settings → Functions) to **Mumbai (bom1)** to match.
+     - Prefer to create the Supabase project yourself? Copy its **Transaction pooler** connection string (Supabase → Connect → port 6543) into `DATABASE_URL` instead.
    - **Upstash for Redis.** It sets `REDIS_URL` / `KV_URL`. Same region.
    - **Upstash QStash.** It sets `QSTASH_TOKEN`, `QSTASH_URL`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY`.
 3. **Add environment variables** (Settings → Environment Variables):
@@ -90,7 +91,7 @@ Everything — dashboard, bio pages, API, webhooks and background jobs — deplo
    |---|---|
    | `TOKEN_ENCRYPTION_KEY` | `openssl rand -base64 32`. Store it safely and **never change it** (changing it breaks every connected account). |
    | `SESSION_SECRET` | any long random string |
-   | `DATABASE_APP_PASSWORD` | any long random string. The dashboard connects as a separate `marqbee_app` role so row-level security isolates workspaces; it's created automatically. |
+   | `DATABASE_APP_PASSWORD` | any long random string. The dashboard connects as a separate `marqbee_app` role (through Supabase's pooler as `marqbee_app.<project-ref>`) so row-level security isolates workspaces; the build creates it automatically. |
    | `CRON_SECRET` | any long random string (Vercel sends it to the cron endpoints) |
    | `META_CLIENT` | `fake` until your Meta app is approved. Sends are simulated and the Accounts page has a simulator. |
    | `PUBLIC_WEB_URL` | optional: your custom domain, e.g. `https://marqbee.in`. Defaults to the Vercel production URL. |
@@ -98,8 +99,9 @@ Everything — dashboard, bio pages, API, webhooks and background jobs — deplo
 4. **Deploy.** The build runs migrations, registers the QStash schedules, then builds Next.js. Open `https://<your-app>/health`: it should show `{"ok":true,"jobs":"qstash",...}`.
 
 **Notes**
-- **Costs:** Vercel Hobby, Neon, Upstash Redis and QStash all have free tiers. QStash's free daily message quota covers testing; one comment-to-DM uses about 3 messages (event + DM + public reply), so switch QStash to pay-as-you-go before real launches.
-- **Preview deployments** share the production environment variables unless you scope them, so attach a separate Neon branch to Preview (the Neon integration can do this automatically).
+- **Costs:** Vercel Hobby, Supabase, Upstash Redis and QStash all have free tiers. Supabase pauses free projects after a week without activity, so use a paid plan once you're live. QStash's free daily message quota covers testing; one comment-to-DM uses about 3 messages (event + DM + public reply), so switch QStash to pay-as-you-go before real launches.
+- **Preview deployments** share the production environment variables unless you scope them, so point Preview at a separate Supabase project (or Supabase branching) to keep test data out of production.
+- **Supabase Data API is locked down.** Marqbee only talks to Postgres through its own server, never through Supabase's auto-generated REST/GraphQL API. Migration `004_supabase_lockdown.sql` revokes the `anon` and `authenticated` roles' access to every table, so the public anon key can't read anything. The Supabase dashboard's Table Editor still works (it uses the `postgres` role).
 - **Commercial use:** Vercel Hobby is for non-commercial use, so move to Pro before charging customers.
 
 ### Alternative: split hosting

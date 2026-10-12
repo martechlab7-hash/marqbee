@@ -6,7 +6,7 @@
  */
 import { waitUntil } from "@vercel/functions";
 import type { FastifyInstance } from "fastify";
-import { createDb } from "@marqbee/db";
+import { createDb, pgRoleName } from "@marqbee/db";
 import { createEngine, loadConfig, type Engine } from "@marqbee/engine";
 import { buildApp } from "@marqbee/api/app";
 
@@ -16,8 +16,8 @@ const g = globalThis as unknown as { __marqbee?: Promise<Backend> };
 function getBackend(): Promise<Backend> {
   g.__marqbee ??= (async () => {
     const config = loadConfig();
-    if (new URL(config.databaseUrl).username === new URL(config.databaseServiceUrl).username) {
-      throw new Error("The dashboard must use the RLS app role: set DATABASE_APP_PASSWORD (Neon) or a separate DATABASE_URL/DATABASE_SERVICE_URL.");
+    if (pgRoleName(new URL(config.databaseUrl).username) === pgRoleName(new URL(config.databaseServiceUrl).username)) {
+      throw new Error("The dashboard must use the RLS app role: set DATABASE_APP_PASSWORD (Supabase) or a separate DATABASE_URL/DATABASE_SERVICE_URL.");
     }
     const engine = createEngine(config);
     const appDb = createDb(config.databaseUrl, { max: 5 });

@@ -1,11 +1,11 @@
-import { createDb, migrate, resolveDatabaseUrls } from "./index.js";
+import { createDb, migrate, pgRoleName, resolveDatabaseUrls } from "./index.js";
 
 /** Runs migrations as the schema owner and ensures the RLS app role exists with its grants. */
 export async function runMigrations(env: NodeJS.ProcessEnv = process.env, log: (m: string) => void = console.log): Promise<string[]> {
   const urls = resolveDatabaseUrls(env);
   const serviceUrl = urls.migrate;
   if (!serviceUrl) {
-    throw new Error("Set DATABASE_SERVICE_URL (+ DATABASE_URL for the app role), or DATABASE_URL + DATABASE_APP_PASSWORD (Vercel/Neon)");
+    throw new Error("Set DATABASE_SERVICE_URL (+ DATABASE_URL for the app role), or POSTGRES_URL/DATABASE_URL + DATABASE_APP_PASSWORD (Supabase)");
   }
   const sql = createDb(serviceUrl, { max: 1 });
   try {
@@ -14,9 +14,10 @@ export async function runMigrations(env: NodeJS.ProcessEnv = process.env, log: (
     // Create the RLS-restricted app role from DATABASE_URL if it doesn't exist yet,
     // so a managed database needs no manual setup beyond its owner credentials.
     const appUrl = urls.app ? new URL(urls.app) : null;
-    const serviceUser = new URL(serviceUrl).username;
-    if (appUrl && appUrl.username && appUrl.username !== serviceUser) {
-      const role = decodeURIComponent(appUrl.username);
+    const serviceUser = pgRoleName(new URL(serviceUrl).username);
+    const appRole = appUrl ? pgRoleName(appUrl.username) : null;
+    if (appUrl && appRole && appRole !== serviceUser) {
+      const role = appRole;
       const [exists] = await sql`select 1 from pg_roles where rolname = ${role}`;
       if (!exists) {
         log(`creating app role ${role}`);
@@ -28,8 +29,8 @@ export async function runMigrations(env: NodeJS.ProcessEnv = process.env, log: (
 
     const applied = await migrate(sql, log);
 
-    if (appUrl && appUrl.username !== serviceUser) {
-      const role = ident(decodeURIComponent(appUrl.username));
+    if (appRole && appRole !== serviceUser) {
+      const role = ident(appRole);
       await sql.unsafe(`
         GRANT USAGE ON SCHEMA public TO ${role};
         GRANT SELECT, INSERT, UPDATE, DELETE ON
